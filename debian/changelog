@@ -1,6 +1,10 @@
 xpad (5.8.0-2) UNRELEASED; urgency=medium
 
+  [ Debian Janitor ]
   * Set upstream metadata fields: Repository-Browse.
+
+  [ Jeroen Ploemen ]
+  * Clean: remove po/*.gmo and po/stamp-po. (Closes: #1049192)
 
  -- Debian Janitor <janitor@jelmer.uk>  Thu, 19 May 2022 07:28:14 -0000
 
