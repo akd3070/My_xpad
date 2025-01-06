@@ -10,7 +10,7 @@ Build-Depends:
  libglib2.0-dev,
  libgtk-3-dev,
  libgtksourceview-4-dev,
-Standards-Version: 4.6.0
+Standards-Version: 4.7.0
 Homepage: https://launchpad.net/xpad
 Vcs-Git: https://salsa.debian.org/jcfp/xpad.git
 Vcs-Browser: https://salsa.debian.org/jcfp/xpad
