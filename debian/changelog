@@ -5,6 +5,8 @@ xpad (5.8.0-2) UNRELEASED; urgency=medium
 
   [ Jeroen Ploemen ]
   * Clean: remove po/*.gmo and po/stamp-po. (Closes: #1049192)
+  * Patches: add 01 to allow building with a newer gettext version.
+    (Closes: #1092241)
 
  -- Debian Janitor <janitor@jelmer.uk>  Thu, 19 May 2022 07:28:14 -0000
 
