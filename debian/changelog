@@ -10,6 +10,7 @@ xpad (5.8.0-2) UNRELEASED; urgency=medium
   * Control: switch build dep from libgl1-mesa-dev to libgl1-dev.
   * Lintian: fix override mismatch.
   * Lintian: add override for "superficial-tests" hit.
+  * Upstream: add bug database entry.
 
  -- Debian Janitor <janitor@jelmer.uk>  Thu, 19 May 2022 07:28:14 -0000
 
