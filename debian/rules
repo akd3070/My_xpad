@@ -5,3 +5,7 @@ export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 
 %:
 	dh $@
+
+# Rename the metainfo filename to match the component ID
+execute_after_dh_auto_install:
+	mv -v "$(CURDIR)"/debian/xpad/usr/share/metainfo/xpad.appdata.xml "$(CURDIR)"/debian/xpad/usr/share/metainfo/net.launchpad.xpad.appdata.xml
