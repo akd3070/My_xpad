@@ -1,2 +1,2 @@
 # File is directly used by the program and symlinked from /usr/share/doc/xpad in accordance with policy, section 12.3
-xpad binary: package-contains-documentation-outside-usr-share-doc *usr/share/xpad/help/xpad-user-help.txt
+xpad binary: package-contains-documentation-outside-usr-share-doc *usr/share/xpad/help/xpad-user-help.txt*
