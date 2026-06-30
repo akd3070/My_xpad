@@ -377,6 +377,39 @@ create_tag_table (void)
 	gtk_text_tag_table_add (table, tag);
 	g_clear_object (&tag);
 
+	/* Checklist tags for a modern, color-coded look */
+
+	/* task-done: completed task text — sleek slate grey + strikethrough */
+	tag = GTK_TEXT_TAG (g_object_new (GTK_TYPE_TEXT_TAG, "name", "task-done",
+		"strikethrough", TRUE,
+		"foreground", "#64748b", /* Tailwind slate-500 */
+		NULL));
+	gtk_text_tag_table_add (table, tag);
+	g_clear_object (&tag);
+
+	/* task-checkbox-pending: thick black for unchecked checkbox characters */
+	tag = GTK_TEXT_TAG (g_object_new (GTK_TYPE_TEXT_TAG, "name", "task-checkbox-pending",
+		"foreground", "#000000", /* Deep black */
+		"weight", PANGO_WEIGHT_HEAVY, /* Heaviest possible font weight (900) */
+		NULL));
+	gtk_text_tag_table_add (table, tag);
+	g_clear_object (&tag);
+
+	/* task-checkbox-done: deep emerald green for checked checkbox characters */
+	tag = GTK_TEXT_TAG (g_object_new (GTK_TYPE_TEXT_TAG, "name", "task-checkbox-done",
+		"foreground", "#059669", /* Tailwind emerald-600 */
+		"weight", PANGO_WEIGHT_HEAVY, /* Heaviest possible font weight */
+		NULL));
+	gtk_text_tag_table_add (table, tag);
+	g_clear_object (&tag);
+
+	/* task-indent: subtle grey for indent connector characters */
+	tag = GTK_TEXT_TAG (g_object_new (GTK_TYPE_TEXT_TAG, "name", "task-indent",
+		"foreground", "#bdbdbd",
+		NULL));
+	gtk_text_tag_table_add (table, tag);
+	g_clear_object (&tag);
+
 	return table;
 }
 
@@ -445,4 +478,208 @@ xpad_text_buffer_set_pad (XpadTextBuffer *buffer, XpadPad *pad)
 	g_return_if_fail (buffer);
 
 	g_object_set (G_OBJECT (buffer), "pad", pad, NULL);
+}
+
+/* Checklist Unicode characters — modern, visually distinct */
+static const gchar *TASK_UNCHECKED    = "\xe2\x98\x90"; /* ☐ U+2610 — hollow square */
+static const gchar *TASK_CHECKED      = "\xe2\x9c\x94"; /* ✔ U+2714 — heavy check mark  */
+static const gchar *SUBTASK_UNCHECKED = "\xe2\x97\x8b"; /* ○ U+25CB — hollow circle */
+static const gchar *SUBTASK_CHECKED   = "\xe2\x97\x8f"; /* ● U+25CF — filled circle */
+
+/**
+ * xpad_text_buffer_insert_task:
+ * @buffer: the text buffer
+ * @nested: if TRUE, insert a nested sub-task (circle), else top-level (square)
+ *
+ * Inserts a task checkbox at the current cursor position.
+ * For nested tasks, also inserts leading indentation.
+ */
+void
+xpad_text_buffer_insert_task (XpadTextBuffer *buffer, gboolean nested)
+{
+	GtkTextBuffer *tb = GTK_TEXT_BUFFER (buffer);
+	GtkTextIter iter, cb_start;
+	GtkTextMark *mark;
+	gint cb_offset;
+
+	mark = gtk_text_buffer_get_insert (tb);
+	gtk_text_buffer_get_iter_at_mark (tb, &iter, mark);
+
+	gtk_text_buffer_begin_user_action (tb);
+
+	if (nested) {
+		gtk_text_buffer_insert (tb, &iter, "  ", -1);
+		cb_offset = gtk_text_iter_get_offset (&iter);
+		gtk_text_buffer_insert (tb, &iter, SUBTASK_UNCHECKED, -1);
+	} else {
+		cb_offset = gtk_text_iter_get_offset (&iter);
+		gtk_text_buffer_insert (tb, &iter, TASK_UNCHECKED, -1);
+	}
+
+	/* Apply the pending color tag to the checkbox character */
+	gtk_text_buffer_get_iter_at_offset (tb, &cb_start, cb_offset);
+	gtk_text_buffer_apply_tag_by_name (tb, "task-checkbox-pending", &cb_start, &iter);
+
+	gtk_text_buffer_insert (tb, &iter, " ", -1);
+
+	gtk_text_buffer_end_user_action (tb);
+}
+
+/**
+ * xpad_text_buffer_get_task_char_at_line:
+ * Returns the checkbox character type at the start of a line.
+ * 0 = not a task line, 1 = top-level unchecked, 2 = top-level checked,
+ * 3 = nested unchecked, 4 = nested checked.
+ */
+int
+xpad_text_buffer_get_task_type_at_line (XpadTextBuffer *buffer, gint line_num)
+{
+	GtkTextBuffer *tb = GTK_TEXT_BUFFER (buffer);
+	GtkTextIter line_start, line_end;
+	gchar *line_text;
+	int result = 0;
+
+	gtk_text_buffer_get_iter_at_line (tb, &line_start, line_num);
+	line_end = line_start;
+	gtk_text_iter_forward_to_line_end (&line_end);
+
+	line_text = gtk_text_buffer_get_text (tb, &line_start, &line_end, FALSE);
+	if (!line_text)
+		return 0;
+
+	/* Check for top-level task (starts with checkbox directly) */
+	if (g_str_has_prefix (line_text, TASK_UNCHECKED))
+		result = 1;
+	else if (g_str_has_prefix (line_text, TASK_CHECKED))
+		result = 2;
+	/* Check for nested task (starts with spaces then circle) */
+	else {
+		/* Skip leading spaces */
+		const gchar *p = line_text;
+		while (*p == ' ')
+			p++;
+		if (g_str_has_prefix (p, SUBTASK_UNCHECKED))
+			result = 3;
+		else if (g_str_has_prefix (p, SUBTASK_CHECKED))
+			result = 4;
+	}
+
+	g_free (line_text);
+	return result;
+}
+
+/**
+ * xpad_text_buffer_is_task_line:
+ * Returns TRUE if the given line is a task line (has a checkbox).
+ */
+gboolean
+xpad_text_buffer_is_task_line (XpadTextBuffer *buffer, gint line_num)
+{
+	return xpad_text_buffer_get_task_type_at_line (buffer, line_num) > 0;
+}
+
+/**
+ * xpad_text_buffer_toggle_task_at_line:
+ * Toggles the checkbox state at the given line and applies/removes
+ * the "task-done" tag on the task text.
+ */
+void
+xpad_text_buffer_toggle_task_at_line (XpadTextBuffer *buffer, gint line_num)
+{
+	GtkTextBuffer *tb = GTK_TEXT_BUFFER (buffer);
+	GtkTextIter line_start, line_end, cb_start, cb_end;
+	GtkTextIter text_start, text_end;
+	int task_type;
+	const gchar *replacement = NULL;
+
+	task_type = xpad_text_buffer_get_task_type_at_line (buffer, line_num);
+	if (task_type == 0)
+		return;
+
+	gtk_text_buffer_get_iter_at_line (tb, &line_start, line_num);
+	line_end = line_start;
+	gtk_text_iter_forward_to_line_end (&line_end);
+
+	/* First: remove ALL checklist tags from the entire line to start clean */
+	gtk_text_buffer_remove_tag_by_name (tb, "task-done", &line_start, &line_end);
+	gtk_text_buffer_remove_tag_by_name (tb, "task-checkbox-pending", &line_start, &line_end);
+	gtk_text_buffer_remove_tag_by_name (tb, "task-checkbox-done", &line_start, &line_end);
+
+	/* Find the checkbox character position */
+	cb_start = line_start;
+	if (task_type >= 3) {
+		while (gtk_text_iter_get_char (&cb_start) == ' ')
+			gtk_text_iter_forward_char (&cb_start);
+	}
+
+	cb_end = cb_start;
+	gtk_text_iter_forward_char (&cb_end);
+
+	/* Determine replacement character */
+	switch (task_type) {
+	case 1: replacement = TASK_CHECKED; break;
+	case 2: replacement = TASK_UNCHECKED; break;
+	case 3: replacement = SUBTASK_CHECKED; break;
+	case 4: replacement = SUBTASK_UNCHECKED; break;
+	default: return;
+	}
+
+	gtk_text_buffer_begin_user_action (tb);
+
+	/* Replace the checkbox character */
+	gtk_text_buffer_delete (tb, &cb_start, &cb_end);
+	gtk_text_buffer_insert (tb, &cb_start, replacement, -1);
+
+	/* Re-fetch line boundaries after edit */
+	gtk_text_buffer_get_iter_at_line (tb, &line_start, line_num);
+	line_end = line_start;
+	gtk_text_iter_forward_to_line_end (&line_end);
+
+	/* Find checkbox char again to apply color tag */
+	cb_start = line_start;
+	if (task_type >= 3) {
+		while (gtk_text_iter_get_char (&cb_start) == ' ')
+			gtk_text_iter_forward_char (&cb_start);
+	}
+	cb_end = cb_start;
+	gtk_text_iter_forward_char (&cb_end);
+
+	/* text_start is after the checkbox + space */
+	text_start = cb_end;
+	if (gtk_text_iter_get_char (&text_start) == ' ')
+		gtk_text_iter_forward_char (&text_start);
+	text_end = line_end;
+
+	if (task_type == 1 || task_type == 3) {
+		/* Was unchecked → now checked */
+		gtk_text_buffer_apply_tag_by_name (tb, "task-checkbox-done", &cb_start, &cb_end);
+		gtk_text_buffer_apply_tag_by_name (tb, "task-done", &text_start, &text_end);
+	} else {
+		/* Was checked → now unchecked — just apply pending color to checkbox */
+		gtk_text_buffer_apply_tag_by_name (tb, "task-checkbox-pending", &cb_start, &cb_end);
+		/* text stays default color (no tag needed) */
+	}
+
+	gtk_text_buffer_end_user_action (tb);
+}
+
+/**
+ * xpad_text_buffer_get_line_indent_spaces:
+ * Returns the number of leading spaces on the given line.
+ */
+gint
+xpad_text_buffer_get_line_indent_spaces (XpadTextBuffer *buffer, gint line_num)
+{
+	GtkTextBuffer *tb = GTK_TEXT_BUFFER (buffer);
+	GtkTextIter iter;
+	gint count = 0;
+
+	gtk_text_buffer_get_iter_at_line (tb, &iter, line_num);
+
+	while (!gtk_text_iter_ends_line (&iter) && gtk_text_iter_get_char (&iter) == ' ') {
+		count++;
+		gtk_text_iter_forward_char (&iter);
+	}
+
+	return count;
 }

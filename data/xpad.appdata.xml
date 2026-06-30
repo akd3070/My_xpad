@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>net.launchpad.xpad</id>
+  <launchable type="desktop-id">xpad.desktop</launchable>
+  <name>Xpad</name>
+  <name xml:lang="zh_TW">Xpad</name>
+  <name xml:lang="zh_CN">Xpad</name>
+  <name xml:lang="vi">Xpad</name>
+  <name xml:lang="tr">Xpad</name>
+  <name xml:lang="th">Xpad</name>
+  <name xml:lang="sv">Xpad</name>
+  <name xml:lang="ru">Xpad</name>
+  <name xml:lang="ro">Xpad</name>
+  <name xml:lang="pt">Xpad</name>
+  <name xml:lang="nl">Xpad</name>
+  <name xml:lang="lv">Xpad</name>
+  <name xml:lang="ko">Xpad</name>
+  <name xml:lang="ja">Xpad</name>
+  <name xml:lang="it">Xpad</name>
+  <name xml:lang="hu">Xpad</name>
+  <name xml:lang="hr">Xpad</name>
+  <name xml:lang="ga">Xpad</name>
+  <name xml:lang="fr">Xpad</name>
+  <name xml:lang="fi">Xpad</name>
+  <name xml:lang="et">Xpad</name>
+  <name xml:lang="es">Xpad</name>
+  <name xml:lang="en_GB">Xpad</name>
+  <name xml:lang="de">Xpad</name>
+  <name xml:lang="da">Xpad</name>
+  <name xml:lang="cs">Xpad</name>
+  <name xml:lang="bg">Xpad</name>
+  <name xml:lang="af">Xpad</name>
+  <summary>Sticky notes</summary>
+  <summary xml:lang="zh_TW">自粘性便條</summary>
+  <summary xml:lang="zh_CN">自粘性备注</summary>
+  <summary xml:lang="vi">Ghi chép bám dính</summary>
+  <summary xml:lang="tr">Yapışkan notlar</summary>
+  <summary xml:lang="sv">Klistriga anteckningar</summary>
+  <summary xml:lang="ru">Липкие заметки</summary>
+  <summary xml:lang="pt">Notas colantes</summary>
+  <summary xml:lang="nl">Memo's</summary>
+  <summary xml:lang="ko">메모지</summary>
+  <summary xml:lang="ja">付箋</summary>
+  <summary xml:lang="it">Foglietti adesivi</summary>
+  <summary xml:lang="hu">Ragadós jegyzetek</summary>
+  <summary xml:lang="hr">Papirići</summary>
+  <summary xml:lang="ga">Nótaí greamaitheacha</summary>
+  <summary xml:lang="fr">Notes adhésives</summary>
+  <summary xml:lang="fi">Liimalappumuistiinpanot</summary>
+  <summary xml:lang="et">Märkmepaberid</summary>
+  <summary xml:lang="es">Notas adhesivas</summary>
+  <summary xml:lang="en_GB">Sticky notes</summary>
+  <summary xml:lang="de">Klebezettel</summary>
+  <summary xml:lang="da">Selvklæbende noter</summary>
+  <summary xml:lang="cs">Poznámková lepítka</summary>
+  <summary xml:lang="bg">Лепкави бележки</summary>
+  <summary xml:lang="af">Kleefnotas</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0</project_license>
+  <description>
+    <p>Xpad is a sticky note application that strives to be simple, fault-tolerant, and customizable. Xpad consists of independent pad windows; each is basically a text box in which notes can be written.</p>
+  </description>
+  <screenshots>
+    <screenshot type="default">
+      <caption>Xpad logo</caption>
+      <image>https://wiki.gnome.org/Apps/Xpad?action=AttachFile&amp;do=get&amp;target=xpad.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Xpad - a sticky note</caption>
+      <image>https://wiki.gnome.org/Apps/Xpad?action=AttachFile&amp;do=get&amp;target=xpad-window.png</image>
+    </screenshot>
+  </screenshots>
+  <url type="bugtracker">https://bugs.launchpad.net/xpad</url>
+  <url type="homepage">https://launchpad.net/xpad</url>
+  <update_contact>xpad-hackers@lists.launchpad.net</update_contact>
+  <translation type="gettext">xpad</translation>
+</component>

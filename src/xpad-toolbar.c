@@ -70,6 +70,7 @@ enum
 	ACTIVATE_PREFERENCES,
 	ACTIVATE_PROPERTIES,
 	ACTIVATE_QUIT,
+	ACTIVATE_CHECKLIST,
 	POPUP,
 	POPDOWN,
 	LAST_SIGNAL
@@ -78,6 +79,7 @@ enum
 static const XpadToolbarButton buttons[] =
 {
 	{"Clear", "edit-clear", ACTIVATE_CLEAR, XPAD_BUTTON_TYPE_BUTTON, N_("Clear Pad Contents"), N_("Add C_lear button")},
+	{"Checklist", "view-list-symbolic", ACTIVATE_CHECKLIST, XPAD_BUTTON_TYPE_BUTTON, N_("Insert Checklist Task"), N_("Add Chec_klist button")},
 	{"Close", "window-close", ACTIVATE_CLOSE, XPAD_BUTTON_TYPE_BUTTON, N_("Close and Save Pad"), N_("Add _Close button")},
 	{"Copy", "edit-copy", ACTIVATE_COPY, XPAD_BUTTON_TYPE_BUTTON, N_("Copy to Clipboard"), N_("Add C_opy button")},
 	{"Cut", "edit-cut", ACTIVATE_CUT, XPAD_BUTTON_TYPE_BUTTON, N_("Cut to Clipboard"), N_("Add C_ut button")},
@@ -229,6 +231,14 @@ xpad_toolbar_class_init (XpadToolbarClass *klass)
 
 	signals[ACTIVATE_DELETE] = 
 		g_signal_new ("activate-delete",
+		              G_OBJECT_CLASS_TYPE (gobject_class),
+		              G_SIGNAL_RUN_LAST,
+		              0,
+		              NULL, NULL,
+		              g_cclosure_marshal_VOID__VOID, G_TYPE_NONE, 0);
+
+	signals[ACTIVATE_CHECKLIST] = 
+		g_signal_new ("activate-checklist",
 		              G_OBJECT_CLASS_TYPE (gobject_class),
 		              G_SIGNAL_RUN_LAST,
 		              0,

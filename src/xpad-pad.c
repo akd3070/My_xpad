@@ -152,6 +152,7 @@ static void xpad_pad_sync_title (XpadPad *pad);
 static void xpad_pad_stick_unstick (XpadPad *pad);
 static gboolean xpad_pad_leave_notify_event (GtkWidget *pad, GdkEventCrossing *event);
 static gboolean xpad_pad_enter_notify_event (GtkWidget *pad, GdkEventCrossing *event);
+static void xpad_pad_insert_checklist (XpadPad *pad);
 
 /* Create a new empty pad. */
 GtkWidget *
@@ -356,6 +357,7 @@ static void xpad_pad_constructed (GObject *object)
 	pad->priv->menu = menu_get_popup_no_highlight (pad, pad->priv->accel_group);
 	pad->priv->highlight_menu = menu_get_popup_highlight (pad, pad->priv->accel_group);
 	gtk_accel_group_connect (pad->priv->accel_group, GDK_KEY_Q, GDK_CONTROL_MASK, 0, g_cclosure_new_swap (G_CALLBACK (xpad_app_quit), pad, NULL));
+	gtk_accel_group_connect (pad->priv->accel_group, GDK_KEY_L, GDK_CONTROL_MASK | GDK_SHIFT_MASK, 0, g_cclosure_new_swap (G_CALLBACK (xpad_pad_insert_checklist), pad, NULL));
 
 	/* GtkBox with overlay and toolbar */
 	GtkBox *vbox = GTK_BOX (gtk_box_new (GTK_ORIENTATION_VERTICAL, 0));
@@ -387,9 +389,101 @@ static void xpad_pad_constructed (GObject *object)
 	GtkStyleContext *context = gtk_widget_get_style_context(GTK_WIDGET (pad));
 	gtk_style_context_add_class(context, "XpadPad");
 
-	gtk_widget_show_all (GTK_WIDGET (vbox));
+	/* Modern CSS: tile shadows, hover effects, rounded toolbar, smooth transitions */
+	{
+		GtkCssProvider *modern_css = gtk_css_provider_new ();
+		const gchar *css_data =
+			/* Pad window: tile-like card with subtle shadow border */
+			".XpadPad {"
+			"  border-radius: 8px;"
+			"  box-shadow: 0 2px 12px rgba(0,0,0,0.15), 0 0 1px rgba(0,0,0,0.1);"
+			"  border: 1px solid alpha(@borders, 0.3);"
+			"}"
+			/* Toolbar: flat modern look with subtle top border */
+			".XpadToolbar {"
+			"  background: alpha(@theme_bg_color, 0.95);"
+			"  border-top: 1px solid alpha(@borders, 0.2);"
+			"  padding: 2px 4px;"
+			"  border-radius: 0 0 8px 8px;"
+			"}"
+			/* Toolbar buttons: rounded hover with smooth transition */
+			".XpadToolbar button {"
+			"  border-radius: 6px;"
+			"  padding: 4px 6px;"
+			"  margin: 1px 2px;"
+			"  border: none;"
+			"  background: transparent;"
+			"  transition: all 200ms ease;"
+			"}"
+			".XpadToolbar button:hover {"
+			"  background: alpha(@theme_selected_bg_color, 0.18);"
+			"  box-shadow: 0 1px 3px rgba(0,0,0,0.08);"
+			"}"
+			".XpadToolbar button:active {"
+			"  background: alpha(@theme_selected_bg_color, 0.28);"
+			"}"
+			/* Toolbar button images: subtle color on hover */
+			".XpadToolbar button image {"
+			"  transition: all 200ms ease;"
+			"}"
+			".XpadToolbar button:hover image {"
+			"  -gtk-icon-shadow: 0 0 2px alpha(@theme_selected_bg_color, 0.4);"
+			"}"
+			/* Scrollbar: thin modern scrollbar */
+			"scrollbar {"
+			"  border: none;"
+			"}"
+			"scrollbar slider {"
+			"  min-width: 6px;"
+			"  min-height: 6px;"
+			"  border-radius: 100px;"
+			"  background: alpha(@theme_fg_color, 0.2);"
+			"  transition: all 200ms ease;"
+			"}"
+			"scrollbar slider:hover {"
+			"  background: alpha(@theme_fg_color, 0.35);"
+			"  min-width: 8px;"
+			"}"
+			/* Text view: softer padding for breathing room */
+			"textview {"
+			"  padding: 6px;"
+			"}"
+			"textview text {"
+			"  caret-color: @theme_selected_bg_color;"
+			"}"
+			/* Right-click menus: modern rounded with shadow */
+			"menu {"
+			"  border-radius: 8px;"
+			"  padding: 4px 0;"
+			"  border: 1px solid alpha(@borders, 0.3);"
+			"}"
+			"menu menuitem {"
+			"  border-radius: 4px;"
+			"  margin: 1px 4px;"
+			"  padding: 6px 12px;"
+			"  transition: all 150ms ease;"
+			"}"
+			"menu menuitem:hover {"
+			"  background: alpha(@theme_selected_bg_color, 0.15);"
+			"}"
+			/* Selection: modern accent */
+			"textview text selection {"
+			"  background-color: alpha(@theme_selected_bg_color, 0.3);"
+			"}"
+		;
 
+		gtk_css_provider_load_from_data (modern_css, css_data, -1, NULL);
+		gtk_style_context_add_provider_for_screen (
+			gdk_screen_get_default (),
+			GTK_STYLE_PROVIDER (modern_css),
+			GTK_STYLE_PROVIDER_PRIORITY_APPLICATION
+		);
+		g_clear_object (&modern_css);
+	}
+
+	gtk_widget_show_all (GTK_WIDGET (vbox));
 	gtk_widget_hide (pad->priv->toolbar);
+
 	xpad_pad_notify_has_toolbar (pad);
 
 	/* Set up signals */
@@ -427,6 +521,7 @@ static void xpad_pad_constructed (GObject *object)
 	g_signal_connect_swapped (pad->priv->toolbar, "activate-paste", G_CALLBACK (xpad_pad_paste), pad);
 	g_signal_connect_swapped (pad->priv->toolbar, "activate-search", G_CALLBACK (xpad_pad_search), pad);
 	g_signal_connect_swapped (pad->priv->toolbar, "activate-delete", G_CALLBACK (xpad_pad_delete), pad);
+	g_signal_connect_swapped (pad->priv->toolbar, "activate-checklist", G_CALLBACK (xpad_pad_insert_checklist), pad);
 	g_signal_connect_swapped (pad->priv->toolbar, "activate-properties", G_CALLBACK (xpad_pad_open_properties), pad);
 	g_signal_connect_swapped (pad->priv->toolbar, "activate-preferences", G_CALLBACK (xpad_pad_open_preferences), pad);
 	g_signal_connect_swapped (pad->priv->toolbar, "activate-quit", G_CALLBACK (xpad_pad_close_all), pad);
@@ -1516,6 +1611,15 @@ xpad_pad_show_all (XpadPad *pad)
 }
 
 static void
+xpad_pad_insert_checklist (XpadPad *pad)
+{
+	XpadTextBuffer *buffer;
+	buffer = XPAD_TEXT_BUFFER (gtk_text_view_get_buffer (GTK_TEXT_VIEW (pad->priv->textview)));
+	xpad_text_buffer_insert_task (buffer, FALSE);
+	gtk_widget_grab_focus (pad->priv->textview);
+}
+
+static void
 xpad_pad_close_all (XpadPad *pad)
 {
 	if (!pad->priv->group)
@@ -1624,6 +1728,8 @@ menu_get_popup_no_highlight (XpadPad *pad, GtkAccelGroup *accel_group)
 	g_object_set_data (G_OBJECT (uppermenu), "paste", item);
 	MENU_ADD_SEP();
 	MENU_ADD (_("_Find"), "edit-find", GDK_KEY_F, GDK_CONTROL_MASK, xpad_pad_search);
+	MENU_ADD_SEP();
+	MENU_ADD (_("Check_list"), "view-list-symbolic", GDK_KEY_L, GDK_CONTROL_MASK | GDK_SHIFT_MASK, xpad_pad_insert_checklist);
 	MENU_ADD_SEP();
 	MENU_ADD (_("_Layout"), "document-properties", 0, 0, xpad_pad_open_properties);
 	MENU_ADD (_("_Read only"), "editable", 0, 0, xpad_pad_open_properties);

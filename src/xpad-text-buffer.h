@@ -69,6 +69,16 @@ void xpad_text_buffer_redo (XpadTextBuffer *buffer);
 void xpad_text_buffer_freeze_undo (XpadTextBuffer *buffer);
 void xpad_text_buffer_thaw_undo (XpadTextBuffer *buffer);
 
+/* Checklist functions */
+void xpad_text_buffer_insert_task (XpadTextBuffer *buffer, gboolean nested);
+int xpad_text_buffer_get_task_type_at_line (XpadTextBuffer *buffer, gint line_num);
+gboolean xpad_text_buffer_is_task_line (XpadTextBuffer *buffer, gint line_num);
+void xpad_text_buffer_toggle_task_at_line (XpadTextBuffer *buffer, gint line_num);
+gint xpad_text_buffer_get_line_indent_spaces (XpadTextBuffer *buffer, gint line_num);
+
+XpadPad *xpad_text_buffer_get_pad (XpadTextBuffer *buffer);
+void xpad_text_buffer_set_pad (XpadTextBuffer *buffer, XpadPad *pad);
+
 G_END_DECLS
 
 #endif /* __XPAD_TEXT_BUFFER_H__ */

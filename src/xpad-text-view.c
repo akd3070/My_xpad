@@ -23,6 +23,7 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
 #include <gtk/gtk.h>
 #include <gtksourceview/gtksource.h>
+#include <math.h>
 
 #include "xpad-text-view.h"
 #include "xpad-text-buffer.h"
@@ -57,6 +58,8 @@ static void xpad_text_view_notify_editable (XpadTextView *view);
 static void xpad_text_view_notify_fontname (XpadTextView *view);
 static void xpad_text_view_notify_colors (XpadTextView *view);
 static void xpad_text_view_notify_line_numbering (XpadTextView *view);
+static gboolean xpad_text_view_key_press_event (GtkWidget *widget, GdkEventKey *event, gpointer user_data);
+static gboolean xpad_text_view_checklist_click (GtkWidget *widget, GdkEventButton *event, gpointer user_data);
 
 enum
 {
@@ -77,15 +80,149 @@ xpad_text_view_new (XpadSettings *settings, XpadPad *pad)
 }
 
 static void
+draw_task_glass_tile (GtkTextView *text_view, cairo_t *cr, gint start_y, gint end_y, gint width)
+{
+	/* Adjust coordinates to account for new 16px margins */
+	gdouble x = 6.0;
+	gdouble y = start_y; 
+	gdouble w = width - 12.0;
+	gdouble h = (end_y - start_y);
+	gdouble radius = 10.0; /* More rounded corners */
+
+	if (h <= 0 || w <= 0) return;
+
+	GtkStyleContext *context = gtk_widget_get_style_context (GTK_WIDGET (text_view));
+	GdkRGBA color;
+	gtk_style_context_get_color (context, gtk_style_context_get_state (context), &color);
+	gboolean is_dark = (color.red + color.green + color.blue > 1.5);
+
+	cairo_save (cr);
+
+	/* Soft Multi-Layer Drop Shadow for realistic blur */
+	for (int i = 1; i <= 4; i++) {
+		if (is_dark) {
+			cairo_set_source_rgba (cr, 0.0, 0.0, 0.0, 0.06 / i);
+		} else {
+			cairo_set_source_rgba (cr, 0.0, 0.0, 0.0, 0.03 / i);
+		}
+		gdouble sx = x - i + 1;
+		gdouble sy = y + 2 - i + 1;
+		gdouble sw = w + (i * 2) - 2;
+		gdouble sh = h + (i * 2) - 2;
+		cairo_move_to (cr, sx + radius, sy);
+		cairo_arc (cr, sx + sw - radius, sy + radius, radius, -M_PI/2, 0);
+		cairo_arc (cr, sx + sw - radius, sy + sh - radius, radius, 0, M_PI/2);
+		cairo_arc (cr, sx + radius, sy + sh - radius, radius, M_PI/2, M_PI);
+		cairo_arc (cr, sx + radius, sy + radius, radius, M_PI, 3*M_PI/2);
+		cairo_fill (cr);
+	}
+
+	/* Glass tile background */
+	if (is_dark) {
+		/* White frosted glass for dark themes */
+		cairo_set_source_rgba (cr, 1.0, 1.0, 1.0, 0.08);
+	} else {
+		/* Clean, bright white card for light themes to pop against grey backgrounds */
+		cairo_set_source_rgba (cr, 1.0, 1.0, 1.0, 0.75);
+	}
+
+	cairo_move_to (cr, x + radius, y);
+	cairo_arc (cr, x + w - radius, y + radius, radius, -M_PI/2, 0);
+	cairo_arc (cr, x + w - radius, y + h - radius, radius, 0, M_PI/2);
+	cairo_arc (cr, x + radius, y + h - radius, radius, M_PI/2, M_PI);
+	cairo_arc (cr, x + radius, y + radius, radius, M_PI, 3*M_PI/2);
+	cairo_fill_preserve (cr);
+
+	/* Outer Border */
+	if (is_dark) {
+		cairo_set_source_rgba (cr, 1.0, 1.0, 1.0, 0.15);
+	} else {
+		cairo_set_source_rgba (cr, 0.0, 0.0, 0.0, 0.10);
+	}
+	cairo_set_line_width (cr, 1.0);
+	cairo_stroke (cr);
+
+	/* Inner top highlight for extra glass shine */
+	cairo_set_source_rgba (cr, 1.0, 1.0, 1.0, is_dark ? 0.10 : 0.8);
+	cairo_move_to (cr, x + radius, y + 1.0);
+	cairo_line_to (cr, x + w - radius, y + 1.0);
+	cairo_stroke (cr);
+
+	cairo_restore (cr);
+}
+
+static void
+xpad_text_view_draw_layer (GtkTextView *text_view, GtkTextViewLayer layer, cairo_t *cr)
+{
+	/* Chain up to parent */
+	GtkTextViewClass *parent_class = GTK_TEXT_VIEW_CLASS (xpad_text_view_parent_class);
+	if (parent_class->draw_layer)
+		parent_class->draw_layer (text_view, layer, cr);
+
+	if (layer != GTK_TEXT_VIEW_LAYER_BELOW_TEXT)
+		return;
+
+	GtkTextBuffer *tb = gtk_text_view_get_buffer (text_view);
+	if (!XPAD_IS_TEXT_BUFFER (tb))
+		return;
+
+	XpadTextBuffer *buffer = XPAD_TEXT_BUFFER (tb);
+
+	GdkRectangle visible_rect;
+	gtk_text_view_get_visible_rect (text_view, &visible_rect);
+
+	GtkTextIter iter;
+	gtk_text_view_get_line_at_y (text_view, &iter, visible_rect.y, NULL);
+
+	gint start_y = -1, end_y = -1;
+	gboolean in_task_group = FALSE;
+
+	while (!gtk_text_iter_is_end (&iter)) {
+		gint line_num = gtk_text_iter_get_line (&iter);
+		gint y, height;
+		gtk_text_view_get_line_yrange (text_view, &iter, &y, &height);
+
+		if (y > visible_rect.y + visible_rect.height)
+			break;
+
+		int task_type = xpad_text_buffer_get_task_type_at_line (buffer, line_num);
+		
+		if (task_type > 0) {
+			if (!in_task_group) {
+				in_task_group = TRUE;
+				start_y = y;
+			}
+			end_y = y + height;
+		} else {
+			if (in_task_group) {
+				draw_task_glass_tile (text_view, cr, start_y, end_y, visible_rect.width);
+				in_task_group = FALSE;
+			}
+		}
+		
+		if (!gtk_text_iter_forward_line (&iter))
+			break;
+	}
+
+	if (in_task_group) {
+		draw_task_glass_tile (text_view, cr, start_y, end_y, visible_rect.width);
+	}
+}
+
+static void
 xpad_text_view_class_init (XpadTextViewClass *klass)
 {
 	GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
+
+	GtkTextViewClass *textview_class = GTK_TEXT_VIEW_CLASS (klass);
 
 	gobject_class->constructed = xpad_text_view_constructed;
 	gobject_class->dispose = xpad_text_view_dispose;
 	gobject_class->finalize = xpad_text_view_finalize;
 	gobject_class->set_property = xpad_text_view_set_property;
 	gobject_class->get_property = xpad_text_view_get_property;
+
+	textview_class->draw_layer = xpad_text_view_draw_layer;
 
 	obj_prop[PROP_SETTINGS] = g_param_spec_pointer ("settings", "Xpad settings", "Xpad global settings", G_PARAM_READWRITE | G_PARAM_CONSTRUCT);
 	obj_prop[PROP_PAD] = g_param_spec_pointer ("pad", "Pad", "Pad connected to this textview", G_PARAM_READWRITE | G_PARAM_CONSTRUCT);
@@ -110,15 +247,18 @@ xpad_text_view_constructed (GObject *object)
 
 	gtk_text_view_set_buffer (GTK_TEXT_VIEW (view), GTK_TEXT_BUFFER (view->priv->buffer));
 	gtk_text_view_set_wrap_mode (GTK_TEXT_VIEW (view), GTK_WRAP_WORD);
-	gtk_text_view_set_top_margin (GTK_TEXT_VIEW (view), 5);
-	gtk_text_view_set_bottom_margin (GTK_TEXT_VIEW (view), 5);
-	gtk_text_view_set_left_margin (GTK_TEXT_VIEW (view), 5);
-	gtk_text_view_set_right_margin (GTK_TEXT_VIEW (view), 5);
+	gtk_text_view_set_top_margin (GTK_TEXT_VIEW (view), 8);
+	gtk_text_view_set_bottom_margin (GTK_TEXT_VIEW (view), 8);
+	gtk_text_view_set_left_margin (GTK_TEXT_VIEW (view), 16);
+	gtk_text_view_set_right_margin (GTK_TEXT_VIEW (view), 16);
 
 	gchar *widget_name = g_strdup_printf ("%p", (void *) view);
 	gtk_widget_set_name (GTK_WIDGET (view), widget_name);
 	g_free (widget_name);
 	xpad_text_view_notify_line_numbering(view);
+
+	/* Hide the GtkSourceView gutter (marks margin) to remove the white side bar */
+	gtk_source_view_set_show_line_marks (GTK_SOURCE_VIEW (view), FALSE);
 
 	/* Add CSS style class, so the styling can be overridden by a GTK theme */
 	GtkStyleContext *context = gtk_widget_get_style_context(GTK_WIDGET (view));
@@ -135,6 +275,10 @@ xpad_text_view_constructed (GObject *object)
 	view->priv->notify_font_handler = g_signal_connect_swapped (view->priv->settings, "notify::fontname", G_CALLBACK (xpad_text_view_notify_fontname), view);
 	view->priv->notify_text_handler = g_signal_connect_swapped (view->priv->settings, "notify::text-color", G_CALLBACK (xpad_text_view_notify_colors), view);
 	view->priv->notify_back_handler = g_signal_connect_swapped (view->priv->settings, "notify::back-color", G_CALLBACK (xpad_text_view_notify_colors), view);
+
+	/* Checklist signal handlers */
+	g_signal_connect (view, "key-press-event", G_CALLBACK (xpad_text_view_key_press_event), NULL);
+	g_signal_connect (view, "button-press-event", G_CALLBACK (xpad_text_view_checklist_click), NULL);
 
 	g_signal_handler_block (view->priv->settings, view->priv->notify_font_handler);
 }
@@ -419,5 +563,331 @@ xpad_text_view_notify_line_numbering (XpadTextView *view)
 	gboolean line_numbering;
 	g_object_get (view->priv->settings, "line-numbering", &line_numbering, NULL);
 	gtk_source_view_set_show_line_numbers (GTK_SOURCE_VIEW (view), line_numbering);
+}
+
+/*
+ * Checklist key-press-event handler:
+ * - Enter on a task line: inserts a new task of the same type on the next line
+ * - Tab on a top-level task: converts it to a nested sub-task
+ * - Shift+Tab on a nested task: converts it back to top-level
+ * - Backspace on an empty task line: removes the checkbox and exits task mode
+ */
+static gboolean
+xpad_text_view_key_press_event (GtkWidget *widget, GdkEventKey *event, gpointer user_data)
+{
+	(void) user_data;
+
+	XpadTextView *view = XPAD_TEXT_VIEW (widget);
+	GtkTextBuffer *tb = gtk_text_view_get_buffer (GTK_TEXT_VIEW (view));
+	XpadTextBuffer *buffer = XPAD_TEXT_BUFFER (tb);
+	GtkTextMark *insert_mark;
+	GtkTextIter cursor;
+	gint line_num;
+	int task_type;
+
+	insert_mark = gtk_text_buffer_get_insert (tb);
+	gtk_text_buffer_get_iter_at_mark (tb, &cursor, insert_mark);
+	line_num = gtk_text_iter_get_line (&cursor);
+	task_type = xpad_text_buffer_get_task_type_at_line (buffer, line_num);
+
+	/* Only handle keys when we're on a task line */
+	if (task_type == 0)
+		return FALSE;
+
+	/* --- ENTER: Create new task on the next line --- */
+	if (event->keyval == GDK_KEY_Return || event->keyval == GDK_KEY_KP_Enter)
+	{
+		GtkTextIter line_start, line_end;
+		gchar *line_text;
+		const gchar *text_after_checkbox;
+		gboolean is_empty_task = FALSE;
+
+		gtk_text_buffer_get_iter_at_line (tb, &line_start, line_num);
+		line_end = line_start;
+		gtk_text_iter_forward_to_line_end (&line_end);
+		line_text = gtk_text_buffer_get_text (tb, &line_start, &line_end, FALSE);
+
+		/* Check if the task line is empty (only checkbox + optional space) */
+		text_after_checkbox = line_text;
+		/* Skip leading spaces */
+		while (*text_after_checkbox == ' ')
+			text_after_checkbox++;
+		/* Skip the checkbox character (3 bytes for UTF-8 encoded Unicode) */
+		if (*text_after_checkbox)
+			text_after_checkbox = g_utf8_next_char (text_after_checkbox);
+		/* Skip space after checkbox */
+		if (*text_after_checkbox == ' ')
+			text_after_checkbox++;
+
+		is_empty_task = (*text_after_checkbox == '\0');
+		g_free (line_text);
+
+		if (is_empty_task) {
+			/* Empty task line: remove the checkbox and exit task mode */
+			gtk_text_buffer_begin_user_action (tb);
+			gtk_text_buffer_get_iter_at_line (tb, &line_start, line_num);
+			line_end = line_start;
+			gtk_text_iter_forward_to_line_end (&line_end);
+			gtk_text_buffer_delete (tb, &line_start, &line_end);
+			gtk_text_buffer_end_user_action (tb);
+			return TRUE;
+		}
+
+		/* Insert newline and new task of the same type */
+		gtk_text_buffer_begin_user_action (tb);
+
+		/* Move cursor to end of current line */
+		gtk_text_buffer_get_iter_at_line (tb, &line_end, line_num);
+		gtk_text_iter_forward_to_line_end (&line_end);
+		gtk_text_buffer_place_cursor (tb, &line_end);
+
+		/* Insert newline */
+		gtk_text_buffer_insert_at_cursor (tb, "\n", -1);
+
+		/* Insert checkbox of the same type */
+		if (task_type == 1 || task_type == 2) {
+			/* Top-level task */
+			xpad_text_buffer_insert_task (buffer, FALSE);
+		} else {
+			/* Nested task: preserve indentation */
+			gint indent = xpad_text_buffer_get_line_indent_spaces (buffer, line_num);
+			gchar *spaces = g_strnfill ((gsize) indent, ' ');
+
+			insert_mark = gtk_text_buffer_get_insert (tb);
+			gtk_text_buffer_get_iter_at_mark (tb, &cursor, insert_mark);
+			gtk_text_buffer_insert (tb, &cursor, spaces, -1);
+
+			/* Insert circle checkbox with color tag */
+			static const gchar *sub_unchecked = "\xe2\x97\x8b"; /* ○ */
+			gtk_text_buffer_get_iter_at_mark (tb, &cursor, insert_mark);
+			gint cb_off = gtk_text_iter_get_offset (&cursor);
+			gtk_text_buffer_insert (tb, &cursor, sub_unchecked, -1);
+
+			/* Apply pending color tag to the checkbox */
+			GtkTextIter cb_s;
+			gtk_text_buffer_get_iter_at_offset (tb, &cb_s, cb_off);
+			gtk_text_buffer_get_iter_at_mark (tb, &cursor, insert_mark);
+			gtk_text_buffer_apply_tag_by_name (tb, "task-checkbox-pending", &cb_s, &cursor);
+
+			gtk_text_buffer_get_iter_at_mark (tb, &cursor, insert_mark);
+			gtk_text_buffer_insert (tb, &cursor, " ", -1);
+
+			g_free (spaces);
+		}
+
+		gtk_text_buffer_end_user_action (tb);
+		return TRUE;
+	}
+
+	/* --- TAB: Convert top-level task to nested, or increase nesting --- */
+	if (event->keyval == GDK_KEY_Tab && !(event->state & GDK_SHIFT_MASK))
+	{
+		GtkTextIter line_start, line_end, cb_iter, cb_end;
+		static const gchar *sub_unchecked = "\xe2\x97\x8b"; /* ○ */
+		static const gchar *sub_checked   = "\xe2\x97\x8f"; /* ● */
+
+		gtk_text_buffer_begin_user_action (tb);
+
+		gtk_text_buffer_get_iter_at_line (tb, &line_start, line_num);
+		line_end = line_start;
+		gtk_text_iter_forward_to_line_end (&line_end);
+
+		if (task_type == 1 || task_type == 2) {
+			/* Top-level → nested: replace □/✓ with ○/● and add indentation */
+			cb_iter = line_start;
+			cb_end = cb_iter;
+			gtk_text_iter_forward_char (&cb_end);
+
+			/* Remove old color tags */
+			gtk_text_buffer_remove_tag_by_name (tb, "task-checkbox-pending", &cb_iter, &cb_end);
+			gtk_text_buffer_remove_tag_by_name (tb, "task-checkbox-done", &cb_iter, &cb_end);
+
+			const gchar *new_char = (task_type == 1) ? sub_unchecked : sub_checked;
+			gtk_text_buffer_delete (tb, &cb_iter, &cb_end);
+			gtk_text_buffer_insert (tb, &cb_iter, new_char, -1);
+
+			/* Add indentation at line start */
+			gtk_text_buffer_get_iter_at_line (tb, &line_start, line_num);
+			gtk_text_buffer_insert (tb, &line_start, "  ", -1);
+
+			/* Re-apply color tag to the new checkbox character */
+			gtk_text_buffer_get_iter_at_line (tb, &line_start, line_num);
+			cb_iter = line_start;
+			while (gtk_text_iter_get_char (&cb_iter) == ' ')
+				gtk_text_iter_forward_char (&cb_iter);
+			cb_end = cb_iter;
+			gtk_text_iter_forward_char (&cb_end);
+			if (task_type == 1)
+				gtk_text_buffer_apply_tag_by_name (tb, "task-checkbox-pending", &cb_iter, &cb_end);
+			else
+				gtk_text_buffer_apply_tag_by_name (tb, "task-checkbox-done", &cb_iter, &cb_end);
+		}
+		else if (task_type == 3 || task_type == 4) {
+			/* Already nested: add more indentation */
+			gtk_text_buffer_get_iter_at_line (tb, &line_start, line_num);
+			gtk_text_buffer_insert (tb, &line_start, "  ", -1);
+		}
+
+		gtk_text_buffer_end_user_action (tb);
+		return TRUE;
+	}
+
+	/* --- SHIFT+TAB: Un-nest a task --- */
+	if (event->keyval == GDK_KEY_ISO_Left_Tab ||
+	    (event->keyval == GDK_KEY_Tab && (event->state & GDK_SHIFT_MASK)))
+	{
+		static const gchar *task_unchecked = "\xe2\x98\x90"; /* ☐ */
+		static const gchar *task_checked   = "\xe2\x9c\x94"; /* ✔ */
+
+		if (task_type == 3 || task_type == 4) {
+			gint indent = xpad_text_buffer_get_line_indent_spaces (buffer, line_num);
+			GtkTextIter line_start, cb_iter, cb_end;
+
+			gtk_text_buffer_begin_user_action (tb);
+
+			if (indent <= 2) {
+				/* Convert to top-level: remove all indentation and replace ○/● with □/✓ */
+				gtk_text_buffer_get_iter_at_line (tb, &line_start, line_num);
+
+				/* Remove leading spaces */
+				cb_iter = line_start;
+				while (gtk_text_iter_get_char (&cb_iter) == ' ')
+					gtk_text_iter_forward_char (&cb_iter);
+
+				/* Remove old color tags before deletion */
+				cb_end = cb_iter;
+				gtk_text_iter_forward_char (&cb_end);
+				gtk_text_buffer_remove_tag_by_name (tb, "task-checkbox-pending", &cb_iter, &cb_end);
+				gtk_text_buffer_remove_tag_by_name (tb, "task-checkbox-done", &cb_iter, &cb_end);
+
+				/* Remove spaces */
+				gtk_text_buffer_get_iter_at_line (tb, &line_start, line_num);
+				cb_iter = line_start;
+				while (gtk_text_iter_get_char (&cb_iter) == ' ')
+					gtk_text_iter_forward_char (&cb_iter);
+				if (!gtk_text_iter_equal (&line_start, &cb_iter))
+					gtk_text_buffer_delete (tb, &line_start, &cb_iter);
+
+				/* Replace circle with square/check */
+				gtk_text_buffer_get_iter_at_line (tb, &cb_iter, line_num);
+				cb_end = cb_iter;
+				gtk_text_iter_forward_char (&cb_end);
+
+				const gchar *new_char = (task_type == 3) ? task_unchecked : task_checked;
+				gtk_text_buffer_delete (tb, &cb_iter, &cb_end);
+				gtk_text_buffer_insert (tb, &cb_iter, new_char, -1);
+
+				/* Apply color tag to new checkbox */
+				gtk_text_buffer_get_iter_at_line (tb, &cb_iter, line_num);
+				cb_end = cb_iter;
+				gtk_text_iter_forward_char (&cb_end);
+				if (task_type == 3)
+					gtk_text_buffer_apply_tag_by_name (tb, "task-checkbox-pending", &cb_iter, &cb_end);
+				else
+					gtk_text_buffer_apply_tag_by_name (tb, "task-checkbox-done", &cb_iter, &cb_end);
+			} else {
+				/* Reduce indentation by 2 spaces */
+				gtk_text_buffer_get_iter_at_line (tb, &line_start, line_num);
+				cb_iter = line_start;
+				gtk_text_iter_forward_chars (&cb_iter, 2);
+				gtk_text_buffer_delete (tb, &line_start, &cb_iter);
+			}
+
+			gtk_text_buffer_end_user_action (tb);
+			return TRUE;
+		}
+	}
+
+	/* --- BACKSPACE: On empty task, remove checkbox --- */
+	if (event->keyval == GDK_KEY_BackSpace)
+	{
+		GtkTextIter line_start, line_end;
+		gchar *line_text;
+		const gchar *text_after;
+		gboolean is_cursor_at_task_end = FALSE;
+
+		/* Check if cursor is right after the checkbox + space */
+		gtk_text_buffer_get_iter_at_line (tb, &line_start, line_num);
+		line_end = line_start;
+		gtk_text_iter_forward_to_line_end (&line_end);
+		line_text = gtk_text_buffer_get_text (tb, &line_start, &line_end, FALSE);
+
+		text_after = line_text;
+		while (*text_after == ' ')
+			text_after++;
+		if (*text_after)
+			text_after = g_utf8_next_char (text_after);
+		if (*text_after == ' ')
+			text_after++;
+
+		/* If cursor is at the position right after checkbox+space and no text follows */
+		gint cursor_offset = gtk_text_iter_get_line_offset (&cursor);
+		gint prefix_len = (gint) (text_after - line_text);
+		is_cursor_at_task_end = (cursor_offset == prefix_len && *text_after == '\0');
+
+		g_free (line_text);
+
+		if (is_cursor_at_task_end) {
+			/* Remove the entire task prefix */
+			gtk_text_buffer_begin_user_action (tb);
+			gtk_text_buffer_get_iter_at_line (tb, &line_start, line_num);
+			line_end = line_start;
+			gtk_text_iter_forward_to_line_end (&line_end);
+			gtk_text_buffer_delete (tb, &line_start, &line_end);
+			gtk_text_buffer_end_user_action (tb);
+			return TRUE;
+		}
+	}
+
+	return FALSE;
+}
+
+/*
+ * Checklist click handler:
+ * Detects clicks on checkbox characters and toggles their state.
+ */
+static gboolean
+xpad_text_view_checklist_click (GtkWidget *widget, GdkEventButton *event, gpointer user_data)
+{
+	(void) user_data;
+
+	XpadTextView *view = XPAD_TEXT_VIEW (widget);
+	GtkTextView *text_view = GTK_TEXT_VIEW (view);
+	GtkTextBuffer *tb = gtk_text_view_get_buffer (text_view);
+	XpadTextBuffer *buffer = XPAD_TEXT_BUFFER (tb);
+	GtkTextIter iter;
+	gint x, y;
+	gint line_num;
+
+	if (event->type != GDK_BUTTON_PRESS || event->button != 1)
+		return FALSE;
+
+	/* Convert window coords to buffer coords */
+	gtk_text_view_window_to_buffer_coords (text_view, GTK_TEXT_WINDOW_WIDGET,
+		(gint) event->x, (gint) event->y, &x, &y);
+
+	/* Get the text iter at the click position */
+	gtk_text_view_get_iter_at_location (text_view, &iter, x, y);
+
+	line_num = gtk_text_iter_get_line (&iter);
+
+	int task_type = xpad_text_buffer_get_task_type_at_line (buffer, line_num);
+	if (task_type == 0)
+		return FALSE;
+
+	/* Check if the click was on the checkbox character.
+	 * The checkbox is at the start of the line (possibly after spaces for nested).
+	 * We check if the clicked offset is within the checkbox area. */
+	gint click_offset = gtk_text_iter_get_line_offset (&iter);
+	gint indent = xpad_text_buffer_get_line_indent_spaces (buffer, line_num);
+
+	/* Checkbox is at position 'indent' (0 for top-level, N for nested) */
+	if (click_offset >= indent && click_offset <= indent + 1)
+	{
+		xpad_text_buffer_toggle_task_at_line (buffer, line_num);
+		return TRUE;
+	}
+
+	return FALSE;
 }
 
